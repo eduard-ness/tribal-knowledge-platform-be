@@ -1,0 +1,46 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model IngestJob {
+  id        String   @id @default(uuid())
+  status    String
+  progress  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  files UploadedFile[]
+}
+
+model UploadedFile {
+  id          String   @id @default(uuid())
+  fileName    String
+  contentType String?
+  size        Int?
+  ingestJobId String
+  createdAt   DateTime @default(now())
+
+  ingestJob IngestJob @relation(fields: [ingestJobId], references: [id])
+}
+
+model QueryLog {
+  id        String   @id @default(uuid())
+  project   String?
+  question  String
+  answer    String?
+  createdAt DateTime @default(now())
+}
+
+model PptGenerationJob {
+  id        String   @id @default(uuid())
+  project   String
+  audience  String
+  fileName  String?
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
