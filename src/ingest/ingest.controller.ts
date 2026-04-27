@@ -10,24 +10,36 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { IngestService } from './ingest.service';
 
+type UploadedLocalFile = {
+  originalname: string;
+  mimetype?: string;
+  size?: number;
+};
+
+function normalizeArray(value?: string | string[]): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return Array.isArray(value) ? value : [value];
+}
+
 @Controller('ingest')
 export class IngestController {
   constructor(private readonly ingestService: IngestService) {}
 
-  @Post()
-  createJob() {
-    return this.ingestService.createJob();
-  }
-
-  @Post('upload')
-  @UseInterceptors(FilesInterceptor('files'))
-  upload(
-    @UploadedFiles() files: Express.Multer.File[],
+  @Post('start')
+  @UseInterceptors(FilesInterceptor('files', 50))
+  startIngestion(
+    @UploadedFiles() files: UploadedLocalFile[] = [],
     @Body('urls') urls?: string | string[],
+    @Body('sources') sources?: string | string[],
   ) {
-    const normalizedUrls = Array.isArray(urls) ? urls : urls ? [urls] : [];
-
-    return this.ingestService.createUploadJob(files ?? [], normalizedUrls);
+    return this.ingestService.startIngestion({
+      files,
+      urls: normalizeArray(urls),
+      sources: normalizeArray(sources),
+    });
   }
 
   @Get(':id')
