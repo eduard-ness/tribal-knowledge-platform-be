@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import OpenAI from 'openai';
+//import OpenAI from 'openai';
+import { GoogleGenAI } from '@google/genai';
 import pptxgen from 'pptxgenjs';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -30,15 +31,21 @@ type SlidePlan = {
 
 @Injectable()
 export class PptService {
-  private readonly openai: OpenAI;
+  //private readonly openai: OpenAI;
+  private readonly genai: GoogleGenAI;
 
+  //   constructor(private readonly prisma: PrismaService) {
+  //     if (!process.env.OPENAI_API_KEY) {
+  //       throw new Error('OPENAI_API_KEY is missing');
+  //     }
+
+  //     this.openai = new OpenAI({
+  //       apiKey: process.env.OPENAI_API_KEY,
+  //     });
+  //   }
   constructor(private readonly prisma: PrismaService) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is missing');
-    }
-
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+    this.genai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY || 'missing-key',
     });
   }
 
@@ -143,6 +150,99 @@ export class PptService {
     response.download(filePath, job.fileName);
   }
 
+  //   private async generateSlidePlan(input: {
+  //     project: string;
+  //     audience: string;
+  //     content: string;
+  //   }): Promise<SlidePlan> {
+  //     const fallbackContent =
+  //       input.content ||
+  //       'No ingested content was found. Create a general leadership update about the Tribal Knowledge Platform.';
+
+  //     try {
+  //       const response = await this.openai.responses.create({
+  //         model: 'gpt-4.1-mini',
+  //         input: [
+  //           {
+  //             role: 'system',
+  //             content:
+  //               'You create concise executive PowerPoint outlines. Return only valid JSON matching the requested schema.',
+  //           },
+  //           {
+  //             role: 'user',
+  //             content: `
+  // Create a 5 to 10 slide leadership-ready PowerPoint outline.
+
+  // Audience: ${input.audience}
+  // Project/topic: ${input.project}
+
+  // Use this ingested content:
+  // ${fallbackContent}
+
+  // Rules:
+  // - Generate between 5 and 10 slides.
+  // - Include an executive title slide.
+  // - Use concise, leadership-friendly language.
+  // - Each content slide should have 3 to 5 bullets.
+  // - Include speaker notes for each slide.
+  // - Do not invent precise numbers unless they appear in the content.
+  // `,
+  //           },
+  //         ],
+  //         text: {
+  //           format: {
+  //             type: 'json_schema',
+  //             name: 'slide_deck',
+  //             strict: true,
+  //             schema: {
+  //               type: 'object',
+  //               additionalProperties: false,
+  //               required: ['title', 'subtitle', 'slides'],
+  //               properties: {
+  //                 title: { type: 'string' },
+  //                 subtitle: { type: 'string' },
+  //                 slides: {
+  //                   type: 'array',
+  //                   minItems: 5,
+  //                   maxItems: 10,
+  //                   items: {
+  //                     type: 'object',
+  //                     additionalProperties: false,
+  //                     required: ['title', 'bullets', 'speakerNotes'],
+  //                     properties: {
+  //                       title: { type: 'string' },
+  //                       bullets: {
+  //                         type: 'array',
+  //                         minItems: 0,
+  //                         maxItems: 5,
+  //                         items: { type: 'string' },
+  //                       },
+  //                       speakerNotes: { type: 'string' },
+  //                     },
+  //                   },
+  //                 },
+  //               },
+  //             },
+  //           },
+  //         },
+  //       });
+
+  //       const raw = response.output_text;
+  //       return JSON.parse(raw) as SlidePlan;
+  //     } catch (error) {
+  //       console.error(
+  //         'OpenAI slide generation failed. Using fallback deck.',
+  //         error,
+  //       );
+
+  //       return this.createFallbackSlidePlan(
+  //         input.project,
+  //         input.audience,
+  //         fallbackContent,
+  //       );
+  //     }
+  //   }
+
   private async generateSlidePlan(input: {
     project: string;
     audience: string;
@@ -152,18 +252,18 @@ export class PptService {
       input.content ||
       'No ingested content was found. Create a general leadership update about the Tribal Knowledge Platform.';
 
+    if (!process.env.GEMINI_API_KEY) {
+      return this.createFallbackSlidePlan(
+        input.project,
+        input.audience,
+        fallbackContent,
+      );
+    }
+
     try {
-      const response = await this.openai.responses.create({
-        model: 'gpt-4.1-mini',
-        input: [
-          {
-            role: 'system',
-            content:
-              'You create concise executive PowerPoint outlines. Return only valid JSON matching the requested schema.',
-          },
-          {
-            role: 'user',
-            content: `
+      const response = await this.genai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `
 Create a 5 to 10 slide leadership-ready PowerPoint outline.
 
 Audience: ${input.audience}
@@ -173,6 +273,7 @@ Use this ingested content:
 ${fallbackContent}
 
 Rules:
+- Return ONLY valid JSON.
 - Generate between 5 and 10 slides.
 - Include an executive title slide.
 - Use concise, leadership-friendly language.
@@ -180,38 +281,32 @@ Rules:
 - Include speaker notes for each slide.
 - Do not invent precise numbers unless they appear in the content.
 `,
-          },
-        ],
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'slide_deck',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['title', 'subtitle', 'slides'],
-              properties: {
-                title: { type: 'string' },
-                subtitle: { type: 'string' },
-                slides: {
-                  type: 'array',
-                  minItems: 5,
-                  maxItems: 10,
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['title', 'bullets', 'speakerNotes'],
-                    properties: {
-                      title: { type: 'string' },
-                      bullets: {
-                        type: 'array',
-                        minItems: 0,
-                        maxItems: 5,
-                        items: { type: 'string' },
-                      },
-                      speakerNotes: { type: 'string' },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['title', 'subtitle', 'slides'],
+            properties: {
+              title: { type: 'string' },
+              subtitle: { type: 'string' },
+              slides: {
+                type: 'array',
+                minItems: 5,
+                maxItems: 10,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['title', 'bullets', 'speakerNotes'],
+                  properties: {
+                    title: { type: 'string' },
+                    bullets: {
+                      type: 'array',
+                      minItems: 0,
+                      maxItems: 5,
+                      items: { type: 'string' },
                     },
+                    speakerNotes: { type: 'string' },
                   },
                 },
               },
@@ -220,11 +315,16 @@ Rules:
         },
       });
 
-      const raw = response.output_text;
+      const raw = response.text;
+
+      if (!raw) {
+        throw new Error('Gemini returned an empty response');
+      }
+
       return JSON.parse(raw) as SlidePlan;
     } catch (error) {
       console.error(
-        'OpenAI slide generation failed. Using fallback deck.',
+        'Gemini slide generation failed. Using fallback deck.',
         error,
       );
 
