@@ -152,17 +152,18 @@ export class PptService {
       input.content ||
       'No ingested content was found. Create a general leadership update about the Tribal Knowledge Platform.';
 
-    const response = await this.openai.responses.create({
-      model: 'gpt-4.1-mini',
-      input: [
-        {
-          role: 'system',
-          content:
-            'You create concise executive PowerPoint outlines. Return only valid JSON matching the requested schema.',
-        },
-        {
-          role: 'user',
-          content: `
+    try {
+      const response = await this.openai.responses.create({
+        model: 'gpt-4.1-mini',
+        input: [
+          {
+            role: 'system',
+            content:
+              'You create concise executive PowerPoint outlines. Return only valid JSON matching the requested schema.',
+          },
+          {
+            role: 'user',
+            content: `
 Create a 5 to 10 slide leadership-ready PowerPoint outline.
 
 Audience: ${input.audience}
@@ -179,48 +180,134 @@ Rules:
 - Include speaker notes for each slide.
 - Do not invent precise numbers unless they appear in the content.
 `,
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'slide_deck',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['title', 'subtitle', 'slides'],
-            properties: {
-              title: { type: 'string' },
-              subtitle: { type: 'string' },
-              slides: {
-                type: 'array',
-                minItems: 5,
-                maxItems: 10,
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  required: ['title', 'bullets', 'speakerNotes'],
-                  properties: {
-                    title: { type: 'string' },
-                    bullets: {
-                      type: 'array',
-                      minItems: 0,
-                      maxItems: 5,
-                      items: { type: 'string' },
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'slide_deck',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['title', 'subtitle', 'slides'],
+              properties: {
+                title: { type: 'string' },
+                subtitle: { type: 'string' },
+                slides: {
+                  type: 'array',
+                  minItems: 5,
+                  maxItems: 10,
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['title', 'bullets', 'speakerNotes'],
+                    properties: {
+                      title: { type: 'string' },
+                      bullets: {
+                        type: 'array',
+                        minItems: 0,
+                        maxItems: 5,
+                        items: { type: 'string' },
+                      },
+                      speakerNotes: { type: 'string' },
                     },
-                    speakerNotes: { type: 'string' },
                   },
                 },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    const raw = response.output_text;
-    return JSON.parse(raw) as SlidePlan;
+      const raw = response.output_text;
+      return JSON.parse(raw) as SlidePlan;
+    } catch (error) {
+      console.error(
+        'OpenAI slide generation failed. Using fallback deck.',
+        error,
+      );
+
+      return this.createFallbackSlidePlan(
+        input.project,
+        input.audience,
+        fallbackContent,
+      );
+    }
+  }
+
+  private createFallbackSlidePlan(
+    project: string,
+    audience: string,
+    content: string,
+  ): SlidePlan {
+    const bullets = extractFallbackBullets(content);
+
+    return {
+      title: project || 'Tribal Knowledge Platform',
+      subtitle: audience || 'Leadership Review',
+      slides: [
+        {
+          title: 'Executive Summary',
+          bullets: bullets.slice(0, 4),
+          speakerNotes:
+            'This slide summarizes the key themes extracted from the ingested knowledge sources.',
+        },
+        {
+          title: 'Context and Objective',
+          bullets: [
+            'The platform ingests knowledge from local files, SharePoint sources, and public URLs.',
+            'The goal is to convert scattered project knowledge into reusable leadership-ready insight.',
+            'The current demo validates the ingestion and presentation-generation flow.',
+          ],
+          speakerNotes:
+            'Explain that this is a working vertical slice focused on ingestion, summarization, and presentation output.',
+        },
+        {
+          title: 'Ingested Knowledge Sources',
+          bullets: [
+            'Local uploaded files can be selected through browse or drag and drop.',
+            'SharePoint sync is represented as a selected enterprise knowledge source.',
+            'Public URLs are captured and prepared for crawling and indexing.',
+          ],
+          speakerNotes:
+            'Walk through the three supported source types and how they are triggered only after Start ingestion.',
+        },
+        {
+          title: 'Current Platform Flow',
+          bullets: [
+            'The user selects sources in the frontend.',
+            'The backend creates an ingestion job and stores source metadata.',
+            'The frontend polls job progress until ingestion is complete.',
+            'A PowerPoint deck can then be generated from the ingested knowledge.',
+          ],
+          speakerNotes:
+            'Emphasize that the flow is already end-to-end, even if some integrations are still mocked or simplified.',
+        },
+        {
+          title: 'Leadership Value',
+          bullets: [
+            'Reduces manual preparation effort for status and steering reviews.',
+            'Creates a repeatable process for turning knowledge into executive briefings.',
+            'Provides a foundation for future AI-assisted project intelligence.',
+            'Supports faster access to project risks, decisions, and context.',
+          ],
+          speakerNotes:
+            'Position the value in terms of speed, repeatability, and better leadership visibility.',
+        },
+        {
+          title: 'Next Steps',
+          bullets: [
+            'Replace mocked SharePoint sync with Microsoft Graph integration.',
+            'Add real document parsing for uploaded files.',
+            'Improve semantic indexing and retrieval over ingested content.',
+            'Enable secure enterprise authentication and tenant deployment.',
+          ],
+          speakerNotes:
+            'Use this slide to align on the roadmap after the demo.',
+        },
+      ],
+    };
   }
 
   private async renderPowerPoint(input: {
@@ -410,4 +497,28 @@ Rules:
 
 function slugify(value: string): string {
   return value.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
+
+function extractFallbackBullets(content: string): string[] {
+  const extracted = content
+    .split(/[.!?]\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 35)
+    .slice(0, 8)
+    .map((sentence) => truncate(sentence, 150));
+
+  if (extracted.length >= 4) {
+    return extracted;
+  }
+
+  return [
+    'The platform captures knowledge from multiple project sources.',
+    'Ingested content is converted into structured material for leadership review.',
+    'The current implementation demonstrates an end-to-end frontend, backend, and database flow.',
+    'PowerPoint generation can continue with fallback content when AI generation is unavailable.',
+  ];
 }
